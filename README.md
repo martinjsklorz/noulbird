@@ -1,6 +1,6 @@
 # noulbird
 
-**You vs a language model at Flappy Bird.** A real-time demo of
+**You vs a decision model at Flappy Bird.** A real-time demo of
 [laya-mlx](https://pypi.org/project/laya-mlx/) — native MLX inference for Laya
 typed decision models on Apple Silicon.
 
@@ -16,7 +16,7 @@ going.
 Everything runs on your machine — no API key, no account, no waitlist, no
 network calls. `pip install`, run, play.
 
-<!-- Add a screenshot or GIF here. -->
+![alt text](docs/screenshot.png)
 
 ## What this demonstrates
 
