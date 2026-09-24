@@ -1,0 +1,1184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NoulBird — Flap against AI</title>
+<style>
+  :root {
+    --bg: #f7f9fc;
+    --surface: #ffffff;
+    --surface-2: #eef1f7;
+    --border: #d9dee8;
+    --text: #1b1f2a;
+    --text-muted: #6b7285;
+    --human: #2563eb;
+    --human-dim: rgba(37,99,235,0.10);
+    --ai: #d97706;
+    --ai-dim: rgba(217,119,6,0.10);
+    --green: #16a34a;
+    --red: #dc2626;
+    --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas,
+                 'DejaVu Sans Mono', monospace;
+    --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial,
+                 sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px 16px;
+  }
+
+  .header {
+    text-align: center;
+    max-width: 560px;
+    margin: 0 auto 16px;
+  }
+
+  /* Wordmark and tagline share a baseline, separated by a hairline rule so
+     the name reads as the brand and the tagline as a caption. */
+  .brand {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .brand h1 {
+    font-family: var(--font-mono);
+    font-size: 1.35rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+  }
+  .brand .tagline {
+    position: relative;
+    padding-left: 11px;
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--text-muted);
+  }
+  .brand .tagline::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.1em;
+    bottom: 0.1em;
+    width: 1px;
+    background: var(--border);
+  }
+
+  .lede {
+    font-size: 0.78rem;
+    line-height: 1.55;
+    color: var(--text-muted);
+    margin-top: 7px;
+  }
+  .lede b { font-weight: 600; }
+  .lede .you { color: var(--human); }
+  .lede .ai { color: var(--ai); }
+
+  .top-bar {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 13px;
+  }
+
+  /* An interactive control: raised, with hover and focus affordances. */
+  .toggle {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 5px 13px 5px 10px;
+    font-family: inherit;
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    cursor: pointer;
+    user-select: none;
+    transition: border-color 0.15s, color 0.15s, box-shadow 0.15s;
+  }
+  .toggle:hover { border-color: var(--human); color: var(--text); }
+  .toggle:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--human-dim);
+  }
+  /* Open state: the control carries the accent while the panel is showing. */
+  .toggle[aria-expanded="true"] { color: var(--text); border-color: var(--human); }
+  .toggle .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--border);
+  }
+  .toggle[aria-expanded="true"] .dot { background: var(--human); }
+
+  /* A readout, not a control: flat, so it does not invite clicking. */
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--text-muted);
+  }
+  .api-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex: none;
+  }
+  .api-dot.ok {
+    background: var(--green);
+    box-shadow: 0 0 0 3px rgba(22,163,74,0.16);
+  }
+  .api-dot.err {
+    background: var(--red);
+    box-shadow: 0 0 0 3px rgba(220,38,38,0.14);
+  }
+  .status.down { background: rgba(220,38,38,0.08); color: var(--red); }
+
+  @media (max-width: 430px) {
+    .brand { gap: 0; }
+    .brand .tagline { padding-left: 0; }
+    .brand .tagline::before { display: none; }
+  }
+
+  .main { display: flex; gap: 18px; align-items: flex-start; }
+  /* Canvas geometry, shared so the decision stream can line up with it.
+     --scoreboard-h is measured at runtime, since the cards are content-sized. */
+  :root { --canvas-h: 482px; --scoreboard-h: 88px; }
+  .scoreboard {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+    margin-bottom: 12px;
+  }
+  .score-card {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 9px 12px;
+    text-align: center;
+    transition: opacity 0.25s, border-color 0.25s, box-shadow 0.25s;
+  }
+  .score-card.human {
+    border-color: rgba(37,99,235,0.30);
+    box-shadow: inset 0 2px 0 0 var(--human), 0 1px 3px rgba(20,30,60,0.05);
+  }
+  .score-card.ai {
+    border-color: rgba(217,119,6,0.30);
+    box-shadow: inset 0 2px 0 0 var(--ai), 0 1px 3px rgba(20,30,60,0.05);
+  }
+  .score-card .who {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    font-weight: 700;
+  }
+  .score-card .chip { width: 7px; height: 7px; border-radius: 50%; }
+  .score-card.human .who { color: var(--human); }
+  .score-card.human .chip { background: var(--human); }
+  .score-card.ai .who { color: var(--ai); }
+  .score-card.ai .chip { background: var(--ai); }
+  .score-card .val {
+    font-family: var(--font-mono);
+    font-size: 1.7rem;
+    font-weight: 700;
+    line-height: 1.15;
+    font-variant-numeric: tabular-nums;
+  }
+  .score-card .sub {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    height: 0.85rem;
+  }
+  /* Dim the loser, but keep the live bird's card at full strength. */
+  .score-card.out { opacity: 0.45; }
+  .score-card.out .sub { color: var(--red); font-weight: 700; }
+  .score-card.lead .val { color: var(--green); }
+
+  .versus {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+    min-width: 54px;
+    cursor: pointer;
+    user-select: none;
+    border-radius: 10px;
+  }
+  .versus:hover { background: var(--surface-2); }
+  .versus:hover .versus-label { color: var(--text); }
+  .versus-tally {
+    font-family: var(--font-mono);
+    font-size: 0.95rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .versus-label {
+    font-size: 0.55rem;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--text-muted);
+  }
+
+  canvas {
+    display: block;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: #cbe3f7;
+    box-shadow: 0 4px 18px rgba(20,30,60,0.09);
+  }
+
+  .game-controls { display: flex; gap: 8px; margin-top: 12px; }
+  .btn {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 7px;
+    padding: 8px 14px;
+    font-family: var(--font-sans);
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn:hover { background: var(--surface-2); }
+  .btn.primary {
+    background: var(--human);
+    border-color: var(--human);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(37,99,235,0.28);
+  }
+  .btn.primary:hover { filter: brightness(1.07); }
+  .btn.primary:active { transform: translateY(1px); }
+
+  .hint { text-align: center; font-size: 0.68rem; color: var(--text-muted); margin-top: 10px; }
+  kbd {
+    font-family: var(--font-mono);
+    font-size: 0.64rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    padding: 1px 5px;
+    color: var(--text);
+  }
+
+  .log-side {
+    width: 300px;
+    display: flex;
+    flex-direction: column;
+    /* Top and bottom both line up with the canvas: pushed down past the
+       scoreboard, then sized to the canvas alone. */
+    margin-top: var(--scoreboard-h);
+    height: var(--canvas-h);
+  }
+  .log-side.hidden { display: none; }
+  .log-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+  /* Pushes the close button to the far edge of the header row. */
+  .log-header .spacer { flex: 1; }
+  .log-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.1rem;
+    line-height: 1;
+    padding: 2px 4px;
+    cursor: pointer;
+    border-radius: 5px;
+  }
+  .log-close:hover { background: var(--surface-2); color: var(--text); }
+  .log-header .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ai); }
+  .log-container {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 6px;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+  }
+  .log-entry {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    padding: 3px 6px;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+  .log-entry:nth-child(odd) { background: var(--surface-2); }
+  .log-entry.death { background: rgba(220,38,38,0.12); }
+  .log-entry .tick { color: var(--text-muted); width: 36px; }
+  .log-entry .action { font-weight: 600; width: 38px; }
+  .log-entry .action.flap { color: var(--green); }
+  .log-entry .action.glide { color: var(--text-muted); }
+  /* The confidence bar: the decision value read at a glance, with the
+     number alongside for when the exact figure matters. */
+  .log-entry .conf {
+    flex: 1;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--surface-2);
+    overflow: hidden;
+    min-width: 40px;
+  }
+  .log-entry .conf i {
+    display: block;
+    height: 100%;
+    border-radius: 2px;
+    background: var(--text-muted);
+  }
+  .log-entry.is-flap .conf i { background: var(--green); }
+  .log-entry .noul-val { font-weight: 600; width: 34px; text-align: right; }
+  .log-entry .off { color: var(--text-muted); width: 44px; text-align: right; }
+  .empty-log { color: var(--text-muted); text-align: center; padding: 20px 0; font-family: var(--font-sans); }
+
+  .stats-panel {
+    margin-top: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 8px 10px;
+    font-size: 0.68rem;
+  }
+  .stats-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 2px 0;
+    color: var(--text-muted);
+  }
+  .stats-row span { font-family: var(--font-mono); color: var(--text); font-weight: 600; }
+
+  @media (max-width: 700px) {
+    .main { flex-direction: column; align-items: center; }
+    .log-side { width: 100%; max-width: 360px; height: auto; margin-top: 0; }
+    .log-container { flex: none; height: 200px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="brand">
+    <h1>NoulBird</h1>
+    <span class="tagline">Flap against a decision model</span>
+  </div>
+  <p class="lede">
+    Same pipes, same moment — <b class="you">YOU</b> fly blue, the
+    <b class="ai">AI</b> flies amber. Whoever crashes first sits it out
+    while the other keeps scoring.
+  </p>
+  <div class="top-bar">
+    <div class="status" id="apiStatus">
+      <span class="api-dot unknown" id="apiDot"></span>
+      <span id="apiLabel">model</span>
+    </div>
+    <button type="button" class="toggle" id="showLog" aria-expanded="true"
+            aria-controls="logSide" title="Show or hide the running list of model decisions">
+      <span class="dot"></span>
+      <span id="showLogLabel">Hide decision stream</span>
+    </button>
+  </div>
+</header>
+
+<div class="main">
+  <div class="game-side">
+    <div class="scoreboard">
+      <div class="score-card human" id="cardHuman">
+        <div class="who"><span class="chip"></span>You</div>
+        <div class="val" id="scoreHuman">0</div>
+        <div class="sub" id="subHuman">ready</div>
+      </div>
+      <div class="versus">
+        <div class="versus-tally" id="roundsWon">0–0</div>
+        <div class="versus-label">rounds</div>
+      </div>
+      <div class="score-card ai" id="cardAI">
+        <div class="who"><span class="chip"></span>AI</div>
+        <div class="val" id="scoreAI">0</div>
+        <div class="sub" id="subAI">ready</div>
+      </div>
+    </div>
+    <canvas id="game" width="320" height="480"></canvas>
+    <div class="game-controls">
+      <button class="btn primary" id="startBtn">Start round</button>
+    </div>
+    <div class="hint"><kbd>Space</kbd> or click to flap · hold to climb</div>
+  </div>
+
+  <div class="log-side" id="logSide">
+    <div class="log-header">
+      <span class="dot"></span> Decision stream
+      <span class="spacer"></span>
+      <button class="log-close" id="logClose" aria-label="Close decision stream">&times;</button>
+    </div>
+    <div class="log-container" id="log">
+      <div class="empty-log">Press Start to begin</div>
+    </div>
+    <div class="stats-panel">
+      <div class="stats-row">Avg latency: <span id="avgMs">—</span></div>
+      <div class="stats-row">Flap rate: <span id="flapRate">—</span></div>
+      <div class="stats-row">Decisions: <span id="decisions">0</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/*
+ * noulbird — you vs a local Laya classifier
+ *
+ * A side-by-side race: a human-controlled bird and one flown by a small
+ * local classifier, both navigating the same pipes.
+ *
+ * How the AI flies
+ * ----------------
+ * Every AI_INTERVAL the game describes the world in plain English
+ * (buildState) and asks the model two perceptual yes/no questions
+ * (buildRequest): is the bird below the gap, and is it moving downward. Each
+ * answer comes back as a "noul" — a probability between 0 and 1.
+ *
+ * Those readings are combined into a flap decision here in the client rather
+ * than asked of the model directly. Two properties of the classifier drive
+ * that design:
+ *
+ *   1. It answers perceptual questions well and action questions poorly.
+ *      "Should the bird flap?" returns a near-constant value regardless of
+ *      state; "is the bird below the gap?" discriminates sharply.
+ *   2. It reads prose far better than signed numbers, so the state is
+ *      rendered as a description in words rather than coordinates.
+ *
+ * The model's reading is averaged with heuristicFlap(), a deterministic
+ * predictor, because the model resolves position only into coarse buckets.
+ * The blend keeps the model's judgement while recovering the precision
+ * needed near the gap. heuristicFlap() also flies alone whenever the model
+ * is unreachable, so the game is always playable.
+ *
+ * Layout: constants, state, model API, control loop, UI, rendering, physics,
+ * round control, input.
+ */
+(function() {
+  // ── Config ──────────────────────────────────────────────────────
+  const W = 320, H = 480;
+  const BIRD_R = 12;
+  // The two birds sit a few pixels apart so they remain distinguishable when
+  // flying at the same height. The offset is much smaller than PIPE_W, so both
+  // reach each pipe on effectively the same frame.
+  const HUMAN_X = 68, AI_X = 86;
+
+  // Physics is deliberately gentle. The model answers on a ~120ms wall clock,
+  // which is slow relative to a 60fps game, so a single missed decision must
+  // not be fatal. Tuning note: PIPE_SPEED and PIPE_INTERVAL set how many
+  // decisions the AI gets per pipe. Slowing the pipes down while leaving
+  // AI_INTERVAL fixed reduces that budget and makes the AI play worse, which
+  // is the opposite of what "make it easier" suggests.
+  const GRAVITY = 0.126, FLAP_VEL = -3.3;
+  const PIPE_W = 44, PIPE_GAP = 150, PIPE_SPEED = 2.0;
+  const PIPE_INTERVAL = 180; // frames between pipe spawns
+  const AI_INTERVAL = 120;   // ms floor between AI decisions
+  const GROUND_H = 40;
+
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+
+  // ── State ───────────────────────────────────────────────────────
+  // Each bird carries its own life state so one can die and the other fly on.
+  function makeBird(x, isAI) {
+    return { y: H / 2.5, vy: 0, x, isAI, dead: false, score: 0 };
+  }
+  let human = makeBird(HUMAN_X, false);
+  let ai = makeBird(AI_X, true);
+  let birds = [human, ai];
+
+  let running = false;
+  let started = false;
+  let pipes = [];
+  let frameCount = 0;
+  let apiAlive = false;
+  // Model and predictor components of the most recent decision, kept so a bad
+  // flap can be attributed to one or the other when debugging.
+  let lastParts = { model: null, heur: null };
+  let showLog = true;
+
+  let wins = { human: 0, ai: 0 };
+  let latencies = [];
+  let flapCount = 0;
+  let decisionCount = 0;
+  // aiGeneration increments whenever the round changes. An in-flight request
+  // captures the value at send time and discards its reply if it no longer
+  // matches, so a slow response cannot steer a later round.
+  let aiLoopRunning = false;
+  let aiGeneration = 0;
+
+  // ── Model API ───────────────────────────────────────────────────
+  // server.py serves this page and the inference endpoints from one origin,
+  // so relative paths need no configuration.
+  async function checkApi() {
+    const dot = document.getElementById('apiDot');
+    const label = document.getElementById('apiLabel');
+    const pill = document.getElementById('apiStatus');
+    const set = (state, text) => {
+      dot.className = 'api-dot ' + state;
+      label.textContent = text;
+      // Tint the whole pill when the model is unavailable: the AI bird still
+      // flies on the local predictor, so this is informative, not an error.
+      pill.classList.toggle('down', state !== 'ok');
+    };
+    try {
+      const r = await fetch('/v1/health');
+      const d = await r.json();
+      apiAlive = d.status === 'ok';
+      set(apiAlive ? 'ok' : 'err', apiAlive ? 'model ready' : 'model loading');
+    } catch {
+      apiAlive = false;
+      set('err', 'model offline');
+    }
+  }
+  checkApi();
+
+  // ── Game state as prose ─────────────────────────────────────────
+  // The state is described in words rather than numbers. The classifier does
+  // not reliably interpret signed quantities: "is the bird falling?" against a
+  // velocity of -8 and +8 yields nearly the same answer, while the equivalent
+  // English ("moving upward fast" vs "moving downward fast") separates
+  // cleanly. Keep this function's vocabulary aligned with the criteria strings
+  // in buildRequest() — the classifier matches against that wording.
+  function buildState() {
+    const nextPipe = pipes.find(p => p.x + PIPE_W > ai.x) || null;
+    const playH = H - GROUND_H;
+
+    // Expressed as fractions of FLAP_VEL so the buckets stay meaningful if the
+    // physics constants change.
+    const FAST = Math.abs(FLAP_VEL) * 0.55, SLOW = Math.abs(FLAP_VEL) * 0.09;
+    let motion;
+    if (ai.vy < -FAST) motion = 'The bird is moving upward fast.';
+    else if (ai.vy < -SLOW) motion = 'The bird is moving upward.';
+    else if (ai.vy <= SLOW) motion = 'The bird is hovering.';
+    else if (ai.vy < FAST) motion = 'The bird is moving downward.';
+    else motion = 'The bird is moving downward fast.';
+
+    let place;
+    if (nextPipe) {
+      const offset = ai.y - (nextPipe.gapY + PIPE_GAP / 2);
+      const far = PIPE_GAP / 2;
+      if (offset < -far) place = 'The bird is far above the safe gap.';
+      else if (offset < -15) place = 'The bird is above the safe gap.';
+      else if (offset <= 15) place = 'The bird is level with the safe gap.';
+      else if (offset <= far) place = 'The bird is below the safe gap.';
+      else place = 'The bird is far below the safe gap.';
+    } else {
+      const offset = ai.y - playH / 2;
+      if (offset < -60) place = 'The bird is high up, far above the middle.';
+      else if (offset <= 60) place = 'The bird is near the middle.';
+      else place = 'The bird is low down, far below the middle.';
+    }
+
+    let danger = '';
+    if (ai.y < 60) danger = ' The bird is dangerously close to the ceiling.';
+    else if (ai.y > playH - 60) danger = ' The bird is dangerously close to the ground.';
+
+    return place + ' ' + motion + danger;
+  }
+
+  // Asks what the model can perceive, not what it should do. Direct action
+  // questions ("should the bird flap?") return a near-constant value
+  // regardless of state, whereas perceptual ones ("is the bird below the
+  // gap?") discriminate sharply. The flap decision is derived from these two
+  // readings in aiDecide().
+  function buildRequest() {
+    return {
+      state: buildState(),
+      model: 'laya-mlx',
+      questions: {
+        below_gap: {
+          type: 'noul',
+          instructions: 'Is the bird below the safe gap?',
+          criteria: {
+            true: 'The bird is below the safe gap',
+            false: 'The bird is above the safe gap'
+          }
+        },
+        falling: {
+          type: 'noul',
+          instructions: 'Is the bird moving downward?',
+          criteria: {
+            true: 'The bird is moving downward',
+            false: 'The bird is moving upward'
+          }
+        }
+      }
+    };
+  }
+
+  // ── AI control loop ─────────────────────────────────────────────
+  // Issues one request at a time, waiting for each reply before scheduling the
+  // next. Inference latency varies widely with machine load and regularly
+  // exceeds AI_INTERVAL; a fixed-rate timer would queue requests faster than
+  // they complete and the bird would act on an increasingly stale world.
+  async function aiLoop() {
+    if (aiLoopRunning) return;
+    aiLoopRunning = true;
+    const gen = aiGeneration;
+    while (running && !ai.dead && gen === aiGeneration) {
+      const started = performance.now();
+      await aiDecide(gen);
+      // AI_INTERVAL acts as a floor so a fast server cannot spin the loop.
+      const spent = performance.now() - started;
+      if (spent < AI_INTERVAL) await new Promise(r => setTimeout(r, AI_INTERVAL - spent));
+    }
+    aiLoopRunning = false;
+  }
+
+  async function aiDecide(gen) {
+    if (!running || ai.dead) return;
+
+    const t0 = performance.now();
+    let noul = 0.5;
+    let heurNoul = null;
+    let fromApi = false;
+
+    if (apiAlive) {
+      try {
+        const resp = await fetch('/v1/systemone', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildRequest())
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        const num = (a) => a
+          ? (typeof a.noul === 'number' ? a.noul : parseFloat(a.noul) || 0.5)
+          : 0.5;
+        const belowGap = num(data.answers?.below_gap);
+        const falling = num(data.answers?.falling);
+
+        // The model resolves position into a handful of coarse buckets, which
+        // is too blunt for fine corrections near the gap. Averaging it with
+        // the local predictor keeps its judgement while recovering precision.
+        const modelNoul = 0.75 * belowGap + 0.25 * falling;
+        heurNoul = heuristicFlap();
+        noul = 0.5 * modelNoul + 0.5 * heurNoul;
+        lastParts = { model: modelNoul, heur: heurNoul };
+        fromApi = true;
+      } catch (e) {
+        console.error('API error:', e);
+        noul = heuristicFlap();
+      }
+    } else {
+      noul = heuristicFlap();
+      lastParts = { model: null, heur: noul };
+    }
+
+    const latency = performance.now() - t0;
+
+    // Reply describes a round that has since ended or restarted; drop it.
+    if (gen !== aiGeneration) return;
+
+    decisionCount++;
+    if (fromApi) latencies.push(latency);
+
+    if (running && !ai.dead && noul > 0.5) {
+      ai.vy = FLAP_VEL;
+      flapCount++;
+    }
+
+    if (showLog) addLogEntry(noul, latency, fromApi);
+    updateStats();
+  }
+
+  // Deterministic controller. Serves both as the sole pilot when the model is
+  // unreachable and as the precision half of the blended decision above.
+  //
+  // Projects the bird forward to the next decision and asks whether gliding
+  // would leave it below the target. Aims below the gap centre rather than at
+  // it: a flap is a large fixed impulse, so aiming centrally overshoots into
+  // the upper pipe.
+  function heuristicFlap() {
+    const AIM_MARGIN = PIPE_GAP * 0.26;
+    const nextPipe = pipes.find(p => p.x + PIPE_W > ai.x);
+    const target = nextPipe
+      ? nextPipe.gapY + PIPE_GAP - AIM_MARGIN
+      : (H - GROUND_H) / 2;
+
+    // Frames elapsing between decisions, at the 60fps render loop.
+    const lookahead = AI_INTERVAL / (1000 / 60);
+    const predictedY = ai.y + ai.vy * lookahead + 0.5 * GRAVITY * lookahead * lookahead;
+    const offset = predictedY - target;
+
+    // Positive offset means the glide path falls short. Scaling by PIPE_GAP
+    // keeps the response proportional rather than a hard on/off switch.
+    const raw = 0.5 + (offset / PIPE_GAP);
+    return Math.max(0.05, Math.min(0.95, raw));
+  }
+
+  // ── UI ──────────────────────────────────────────────────────────
+  function addLogEntry(noul, latency, fromApi) {
+    const log = document.getElementById('log');
+    if (log.querySelector('.empty-log')) log.innerHTML = '';
+
+    const div = document.createElement('div');
+    const isFlap = noul > 0.5;
+    div.className = 'log-entry' + (ai.dead ? ' death' : '');
+
+    const nextPipe = pipes.find(p => p.x + PIPE_W > ai.x);
+    const offset = nextPipe ? Math.round(ai.y - (nextPipe.gapY + PIPE_GAP / 2)) : null;
+    if (isFlap) div.className += ' is-flap';
+
+    div.innerHTML = `
+      <span class="tick">#${decisionCount}</span>
+      <span class="action ${isFlap ? 'flap' : 'glide'}">${isFlap ? 'FLAP' : 'glide'}</span>
+      <span class="conf"><i style="width:${(noul * 100).toFixed(0)}%"></i></span>
+      <span class="noul-val">${noul.toFixed(2)}</span>
+      <span class="off">${offset === null ? '—' : (offset > 0 ? '+' : '') + offset}</span>
+    `;
+    log.prepend(div);
+    while (log.children.length > 200) log.removeChild(log.lastChild);
+  }
+
+  function updateStats() {
+    document.getElementById('scoreHuman').textContent = human.score;
+    document.getElementById('scoreAI').textContent = ai.score;
+    document.getElementById('cardHuman').classList.toggle('out', human.dead);
+    document.getElementById('cardAI').classList.toggle('out', ai.dead);
+
+    const status = (b) => !started ? 'ready' : b.dead ? 'out' : 'flying';
+    document.getElementById('subHuman').textContent = status(human);
+    document.getElementById('subAI').textContent = status(ai);
+
+    // Highlight whoever is ahead, but only once a round is under way.
+    const live = started && human.score !== ai.score;
+    document.getElementById('cardHuman')
+      .classList.toggle('lead', live && human.score > ai.score);
+    document.getElementById('cardAI')
+      .classList.toggle('lead', live && ai.score > human.score);
+
+    document.getElementById('roundsWon').textContent = `${wins.human}–${wins.ai}`;
+
+    if (!showLog) return;
+
+    const avgMs = latencies.length
+      ? latencies.reduce((a, b) => a + b, 0) / latencies.length : 0;
+    document.getElementById('avgMs').textContent = avgMs ? avgMs.toFixed(0) + 'ms' : '—';
+    document.getElementById('flapRate').textContent = decisionCount
+      ? (flapCount / decisionCount * 100).toFixed(0) + '%' : '—';
+    document.getElementById('decisions').textContent = decisionCount;
+  }
+
+  // ── Rendering ───────────────────────────────────────────────────
+  // Canvas takes a CSS font shorthand and cannot read custom properties, so
+  // the system stacks from :root are repeated here.
+  const CANVAS_MONO = "ui-monospace, 'SF Mono', Menlo, Consolas, monospace";
+  const CANVAS_SANS = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+
+  // Fixed cloud shapes scrolled at differing speeds, giving the sky a sense
+  // of motion between pipes. Each entry is {x, y, radius, parallax speed}.
+  const CLOUDS = [
+    { x: 40,  y: 70,  r: 20, s: 0.18 },
+    { x: 180, y: 120, r: 15, s: 0.26 },
+    { x: 280, y: 55,  r: 17, s: 0.14 },
+    { x: 120, y: 190, r: 13, s: 0.32 }
+  ];
+
+  function drawBg() {
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, '#a8d0f2');
+    grad.addColorStop(0.55, '#cbe3f7');
+    grad.addColorStop(1, '#e6f2fb');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    for (const c of CLOUDS) {
+      const span = W + c.r * 6;
+      const cx = ((c.x - frameCount * c.s) % span + span) % span - c.r * 3;
+      ctx.beginPath();
+      ctx.arc(cx, c.y, c.r, 0, Math.PI * 2);
+      ctx.arc(cx + c.r * 0.9, c.y + 3, c.r * 0.78, 0, Math.PI * 2);
+      ctx.arc(cx - c.r * 0.9, c.y + 4, c.r * 0.66, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Distant hills, just above the ground line.
+    ctx.fillStyle = 'rgba(126,178,124,0.45)';
+    ctx.beginPath();
+    ctx.moveTo(0, H - GROUND_H);
+    for (let x = 0; x <= W; x += 20) {
+      ctx.lineTo(x, H - GROUND_H - 16 - Math.sin((x + frameCount * 0.3) / 42) * 9);
+    }
+    ctx.lineTo(W, H - GROUND_H);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = '#d5e8b4';
+    ctx.fillRect(0, H - GROUND_H, W, GROUND_H);
+    ctx.strokeStyle = '#8fb469';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, H - GROUND_H + 0.5);
+    ctx.lineTo(W, H - GROUND_H + 0.5);
+    ctx.stroke();
+
+    // Scrolling ground texture, so speed is legible near the bottom.
+    ctx.strokeStyle = 'rgba(110,150,80,0.55)';
+    for (let i = 0; i < 18; i++) {
+      const gx = ((i * 24 - frameCount * PIPE_SPEED) % (W + 24) + (W + 24)) % (W + 24) - 12;
+      ctx.beginPath();
+      ctx.moveTo(gx, H - GROUND_H + 7);
+      ctx.lineTo(gx + 7, H - GROUND_H + 7);
+      ctx.stroke();
+    }
+  }
+
+  function drawPipes() {
+    for (const p of pipes) {
+      const topH = p.gapY;
+      const botY = p.gapY + PIPE_GAP;
+
+      const body = ctx.createLinearGradient(p.x, 0, p.x + PIPE_W, 0);
+      body.addColorStop(0, '#3f9a4f');
+      body.addColorStop(0.32, '#63c268');
+      body.addColorStop(1, '#2f7d3f');
+
+      ctx.fillStyle = body;
+      ctx.fillRect(p.x, 0, PIPE_W, topH);
+      ctx.fillRect(p.x, botY, PIPE_W, H - GROUND_H - botY);
+
+      ctx.strokeStyle = '#256b33';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(p.x + 0.5, -0.5, PIPE_W - 1, topH);
+      ctx.strokeRect(p.x + 0.5, botY + 0.5, PIPE_W - 1, H - GROUND_H - botY);
+
+      // Lips, drawn slightly wider than the shaft.
+      const cap = ctx.createLinearGradient(p.x, 0, p.x + PIPE_W, 0);
+      cap.addColorStop(0, '#388f47');
+      cap.addColorStop(0.32, '#5cb863');
+      cap.addColorStop(1, '#2a7038');
+      ctx.fillStyle = cap;
+      ctx.fillRect(p.x - 3, topH - 16, PIPE_W + 6, 16);
+      ctx.fillRect(p.x - 3, botY, PIPE_W + 6, 16);
+      ctx.strokeStyle = '#1f5c2b';
+      ctx.strokeRect(p.x - 2.5, topH - 15.5, PIPE_W + 5, 15);
+      ctx.strokeRect(p.x - 2.5, botY + 0.5, PIPE_W + 5, 15);
+    }
+  }
+
+  function drawBird(b) {
+    const x = b.x, y = b.y;
+    const base = b.isAI ? '#d97706' : '#2563eb';
+    const wing = b.isAI ? '#a85705' : '#1b45c4';
+
+    ctx.save();
+    // A dead bird fades but keeps its white outline so both remain
+    // distinguishable once they come to rest on the ground together.
+    ctx.globalAlpha = b.dead ? 0.5 : 1;
+
+    // Nose follows the velocity vector.
+    const tilt = Math.max(-0.5, Math.min(0.85, b.vy / 9));
+    ctx.translate(x, y);
+    ctx.rotate(tilt);
+
+    if (!b.dead) {
+      ctx.fillStyle = b.isAI ? 'rgba(217,119,6,0.16)' : 'rgba(37,99,235,0.16)';
+      ctx.beginPath();
+      ctx.arc(0, 0, BIRD_R + 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = base;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, BIRD_R, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Beak
+    ctx.fillStyle = '#f5a524';
+    ctx.beginPath();
+    ctx.moveTo(BIRD_R - 1, -1);
+    ctx.lineTo(BIRD_R + 7, 2);
+    ctx.lineTo(BIRD_R - 1, 5);
+    ctx.closePath();
+    ctx.fill();
+
+    // A closed eye marks the bird as out.
+    if (b.dead) {
+      ctx.strokeStyle = '#1b1f2a';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(2, -3);
+      ctx.lineTo(8, -3);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(4.5, -3.5, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#111';
+      ctx.beginPath();
+      ctx.arc(5.8, -3.5, 1.9, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Wing beats while climbing.
+    const flapUp = b.vy < 0;
+    ctx.fillStyle = wing;
+    ctx.beginPath();
+    ctx.ellipse(-5, flapUp ? 1 : 5, 7.5, flapUp ? 5 : 3.5, flapUp ? -0.55 : 0.12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Drawn outside the rotation so the label stays upright.
+    ctx.save();
+    ctx.globalAlpha = b.dead ? 0.55 : 1;
+    ctx.font = `700 8px ${CANVAS_MONO}`;
+    ctx.fillStyle = base;
+    ctx.textAlign = 'center';
+    ctx.fillText(b.isAI ? 'AI' : 'YOU', x, y - BIRD_R - (b.isAI ? 7 : 17));
+    ctx.restore();
+  }
+
+  function drawOverlay(text, sub) {
+    ctx.fillStyle = 'rgba(247,249,252,0.86)';
+    ctx.fillRect(0, 0, W, H);
+
+    const cw = 232, ch = 92, cx = (W - cw) / 2, cy = H / 2 - ch / 2 - 6;
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#d9dee8';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(cx, cy, cw, ch, 12);
+    else ctx.rect(cx, cy, cw, ch);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.font = `700 19px ${CANVAS_MONO}`;
+    ctx.fillStyle = '#1b1f2a';
+    ctx.fillText(text, W / 2, cy + 40);
+    if (sub) {
+      ctx.font = `400 11px ${CANVAS_SANS}`;
+      ctx.fillStyle = '#6b7285';
+      ctx.fillText(sub, W / 2, cy + 64);
+    }
+  }
+
+  function draw() {
+    drawBg();
+    drawPipes();
+    // Dead birds first so a surviving bird draws on top where they overlap.
+    for (const b of birds) if (b.dead) drawBird(b);
+    for (const b of birds) if (!b.dead) drawBird(b);
+
+    if (!started) {
+      drawOverlay('You vs AI', 'Press Space or Start');
+    } else if (!running) {
+      const msg = human.score > ai.score ? 'You win!'
+        : ai.score > human.score ? 'AI wins!' : 'Draw!';
+      drawOverlay(msg, `You ${human.score} — AI ${ai.score} · Space to replay`);
+    }
+  }
+
+  // ── Physics ─────────────────────────────────────────────────────
+  function spawnPipe() {
+    const minY = 50;
+    const maxY = H - GROUND_H - PIPE_GAP - 50;
+    const gapY = minY + Math.random() * (maxY - minY);
+    // scoredBy records which birds have already cleared this pipe, so each
+    // scores independently of the other.
+    pipes.push({ x: W + 10, gapY, scoredBy: {} });
+  }
+
+  function hits(b) {
+    const br = BIRD_R - 2;
+    if (b.y + br >= H - GROUND_H || b.y - br <= 0) return true;
+    for (const p of pipes) {
+      if (b.x + br > p.x && b.x - br < p.x + PIPE_W) {
+        if (b.y - br < p.gapY || b.y + br > p.gapY + PIPE_GAP) return true;
+      }
+    }
+    return false;
+  }
+
+  function killBird(b) {
+    b.dead = true;
+    // Bumping the generation retires any in-flight request; aiLoop observes
+    // ai.dead and exits, so no inference runs for a bird that is out.
+    if (b.isAI) aiGeneration++;
+    updateStats();
+    if (human.dead && ai.dead) endRound();
+  }
+
+  function endRound() {
+    running = false;
+    aiGeneration++;
+    if (human.score > ai.score) wins.human++;
+    else if (ai.score > human.score) wins.ai++;
+    document.getElementById('startBtn').textContent = 'Play again';
+    updateStats();
+  }
+
+  function update() {
+    if (!running) return;
+
+    for (const b of birds) {
+      if (b.dead) {
+        // Eliminated birds keep falling until they rest on the ground.
+        if (b.y < H - GROUND_H - BIRD_R) { b.vy += GRAVITY; b.y += b.vy; }
+        else { b.y = H - GROUND_H - BIRD_R; b.vy = 0; }
+        continue;
+      }
+      b.vy += GRAVITY;
+      b.y += b.vy;
+    }
+
+    if (frameCount % PIPE_INTERVAL === 0) spawnPipe();
+    frameCount++;
+
+    for (const p of pipes) {
+      p.x -= PIPE_SPEED;
+      for (const b of birds) {
+        const key = b.isAI ? 'ai' : 'human';
+        if (!b.dead && !p.scoredBy[key] && p.x + PIPE_W < b.x) {
+          p.scoredBy[key] = true;
+          b.score++;
+        }
+      }
+    }
+    pipes = pipes.filter(p => p.x > -PIPE_W - 10);
+
+    for (const b of birds) {
+      if (!b.dead && hits(b)) killBird(b);
+    }
+    updateStats();
+  }
+
+  function tick() {
+    update();
+    draw();
+    requestAnimationFrame(tick);
+  }
+
+  // ── Round control ───────────────────────────────────────────────
+  function startGame() {
+    human = makeBird(HUMAN_X, false);
+    ai = makeBird(AI_X, true);
+    birds = [human, ai];
+    pipes = [];
+    frameCount = 0;
+    started = true;
+    running = true;
+    decisionCount = 0;
+    latencies = [];
+    flapCount = 0;
+
+    document.getElementById('log').innerHTML = '';
+    document.getElementById('startBtn').textContent = 'Restart';
+    updateStats();
+
+    // Retire replies still in flight from the previous round.
+    aiGeneration++;
+    checkApi().then(() => {
+      if (running && !ai.dead) aiLoop();
+    });
+  }
+
+  // Clears the cumulative round tally. Bound to the scoreboard's rounds
+  // counter, which doubles as its own reset control.
+  function clearMatch() {
+    wins = { human: 0, ai: 0 };
+    updateStats();
+  }
+
+  // A flap outside a live round starts the next one, so the same key both
+  // begins play and controls the bird.
+  function humanFlap() {
+    if (!started || !running) { startGame(); return; }
+    if (!human.dead) human.vy = FLAP_VEL;
+  }
+
+  // ── Controls ────────────────────────────────────────────────────
+  document.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' || e.code === 'ArrowUp') {
+      e.preventDefault();
+      humanFlap();
+    }
+  });
+  canvas.addEventListener('mousedown', (e) => { e.preventDefault(); humanFlap(); });
+  canvas.addEventListener('touchstart', (e) => { e.preventDefault(); humanFlap(); }, { passive: false });
+
+  document.getElementById('startBtn').addEventListener('click', startGame);
+  document.getElementById('roundsWon').addEventListener('click', clearMatch);
+
+  // The button is labelled with the action it performs, so it reads
+  // "Hide decision stream" while the panel is open and "Show…" once closed.
+  const showLogBtn = document.getElementById('showLog');
+  const showLogLabel = document.getElementById('showLogLabel');
+  const applyLogVisibility = () => {
+    document.getElementById('logSide').classList.toggle('hidden', !showLog);
+    showLogLabel.textContent = (showLog ? 'Hide' : 'Show') + ' decision stream';
+    showLogBtn.setAttribute('aria-expanded', String(showLog));
+    if (showLog) updateStats();
+  };
+  const toggleLog = () => { showLog = !showLog; applyLogVisibility(); };
+  showLogBtn.addEventListener('click', toggleLog);
+
+  // The panel's own close button is the same action as the header toggle.
+  document.getElementById('logClose').addEventListener('click', toggleLog);
+
+  applyLogVisibility();
+
+  // The scoreboard is content-sized and lands on a sub-pixel height, so
+  // measure the real gap to the canvas top rather than summing it in CSS.
+  const scoreboard = document.querySelector('.scoreboard');
+  const syncScoreboardHeight = () => {
+    const top = canvas.getBoundingClientRect().top
+      - scoreboard.parentElement.getBoundingClientRect().top;
+    document.documentElement.style.setProperty('--scoreboard-h', top + 'px');
+  };
+  syncScoreboardHeight();
+  if (window.ResizeObserver) new ResizeObserver(syncScoreboardHeight).observe(scoreboard);
+
+  // ── Boot ────────────────────────────────────────────────────────
+  draw();
+  tick();
+})();
+</script>
+</body>
+</html>
